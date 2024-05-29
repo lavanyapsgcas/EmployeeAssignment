@@ -8,10 +8,14 @@ import { CommonModule } from '@angular/common';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatSortModule } from '@angular/material/sort';
 import { EmployeeServiceService } from '../employee-service.service';
 import { HttpClientModule, HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import * as pdfjsLib from 'pdfjs-dist';
+import { Observable, from } from 'rxjs';
+import { Employee } from '../model/employee-model';
 
 
 export interface PeriodicElement {
@@ -22,12 +26,6 @@ export interface PeriodicElement {
   status: string;
 }
 
-const ELEMENT_DATA: PeriodicElement[] = [
-  { id: 1, name: 'Jim', designation: 'Manager', location: 'New york', status: 'Active' },
-  { id: 2, name: 'Corbett', designation: 'HR', location: 'Canada', status: 'Temporarily suspended' },
-  { id: 3, name: 'Harry', designation: 'Designer', location: 'Paris', status: 'Inactive' },
-  { id: 4, name: 'Potter', designation: 'Developer', location: 'Riyadh', status: 'Terminated' },
-];
 @Component({
   selector: 'app-employee',
   templateUrl: './employee.component.html',
@@ -46,69 +44,119 @@ const ELEMENT_DATA: PeriodicElement[] = [
   ],
 })
 export class EmployeeComponent implements OnInit {
-  displayedColumns: string[] = ['id', 'name', 'designation', 'location', 'status'];
-  dataSource = new MatTableDataSource<PeriodicElement>(ELEMENT_DATA);
-  @ViewChild('dataTable') table!: MatTable<PeriodicElement>;
+  displayedColumns: string[] = ['id', 'name', 'designation', 'location', 'status','actions'];
+  dataSource = new MatTableDataSource<Employee>([]);
+  @ViewChild('dataTable') table!: MatTable<Employee>;
+  EmployeeForm!: FormGroup;
+  showForm: boolean = false;
+  submitted: boolean = false;
+  editingEmployeeId: number | null = null;
 
-  employeeIdControl = new FormControl();
-  designationControl = new FormControl();
-  locationControl = new FormControl();
 
   idList: any[] = [];
   designationList: any[] = [];
   locationList: any[] = [];
   filteredData: any[] = [];
+  employeeList: Employee[] = [];
 
-  newEmployee = { "id": 7, "name": "Alice Johnson", "designation": "Project Manager", "location": "Chicago" };
 
-  constructor(private employeeService: EmployeeServiceService) { }
+  constructor(private employeeService: EmployeeServiceService, private fb: FormBuilder) { }
+
   ngOnInit(): void {
-    this.getIdData();
-    this.getDesignationData();
-    this.getLocationData();
+
+    this.EmployeeForm = this.fb.group({
+      id: ['', Validators.required],
+      name: ['', Validators.required],
+      location: ['', Validators.required],
+      designation: ['', Validators.required],
+      status: ['',Validators.required]
+    });
+    this.getEmployee();
+    this.getFilterData();
+
+  }
+
+  get f() {
+    return this.EmployeeForm.controls;
+  }
+
+  getEmployee() {
+    this.employeeService.getEmployees().subscribe(data => {
+      this.employeeList = data;
+      this.dataSource.data = this.employeeList;
+     
+      console.log("employee data", this.employeeList);
+    })
   }
 
   addEmployee() {
-    this.employeeService.addEmployee(this.newEmployee).subscribe(
-      () => console.log('Employee added successfully'),
-      (error) => console.error('Error adding employee:', error)
-    );
+    this.showForm = true
   }
 
-  getIdData() {
-    this.dataSource.data.forEach(element => {
-      this.idList.push(element.id)
-    });
+  onSubmit() {
+    this.submitted = true;
+    if (this.EmployeeForm.valid) {
+      const newEmployee = this.EmployeeForm.value;
+      this.employeeService.addEmployee(newEmployee).subscribe((newEmployee) => {
+        this.employeeList = newEmployee;
+        this.dataSource.data = this.employeeList;
+        console.log("newEmployee data", newEmployee);
+      });
+      this.EmployeeForm.reset();
+      this.EmployeeForm.clearValidators();
+      this.submitted = false;
+    }
+    
   }
-  getDesignationData() {
-    this.dataSource.data.forEach(element => {
-      this.designationList.push(element.designation)
-    });
-  }
-  getLocationData() {
-    this.dataSource.data.forEach(element => {
-      this.locationList.push(element.location)
-    });
+
+  getFilterData() {
+    this.employeeService.getEmployees().subscribe(data => {
+      this.dataSource.data = data;
+      this.dataSource.data.forEach(element => {
+        this.idList.push(element.id)
+      });
+
+      this.dataSource.data.forEach(element => {
+        this.designationList.push(element.designation)
+      });
+
+      this.dataSource.data.forEach(element => {
+        this.locationList.push(element.location)
+      });
+
+    })
   }
 
   filterId(input: string | any) {
-    this.dataSource.filterPredicate = (data: PeriodicElement, f: string) =>
+    this.dataSource.filterPredicate = (data: Employee, f: string) =>
       !f ||
       data.id == input.target.value;
     this.dataSource.filter = input.target.value;
   }
   filterDesignation(input: string | any) {
-    this.dataSource.filterPredicate = (data: PeriodicElement, f: string) =>
+    this.dataSource.filterPredicate = (data: Employee, f: string) =>
       !f ||
       data.designation == input.target.value;
     this.dataSource.filter = input.target.value;
   }
   filterLocation(input: string | any) {
-    this.dataSource.filterPredicate = (data: PeriodicElement, f: string) =>
+    this.dataSource.filterPredicate = (data: Employee, f: string) =>
       !f ||
       data.location == input.target.value;
     this.dataSource.filter = input.target.value;
   }
+  editEmployee(employee: Employee) {
+    this.showForm = true;
+    this.editingEmployeeId = employee.id;
+    if(this.editingEmployeeId===employee.id){
+      this.EmployeeForm.patchValue(employee);
+    }    
+  }
 
+  deleteEmployee(employee: Employee) {
+    this.employeeList = this.employeeList.filter(emp => emp.id !== employee.id);
+    this.dataSource.data = this.employeeList;
+
+  }
 
 }
